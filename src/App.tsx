@@ -5,6 +5,7 @@ import AuthScreen from '@/pages/AuthScreen';
 import VaultPage from '@/pages/VaultPage';
 import AgentsPage from '@/pages/AgentsPage';
 import ChatPage from '@/pages/ChatPage';
+import GamesPage from '@/pages/GamesPage';
 import SettingsPage from '@/pages/SettingsPage';
 
 function ProtectedRoutes() {
@@ -27,6 +28,7 @@ function ProtectedRoutes() {
         <Route path="/vault" element={<VaultPage />} />
         <Route path="/agents" element={<AgentsPage />} />
         <Route path="/chat" element={<ChatPage />} />
+        <Route path="/games" element={<GamesPage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Route>
     </Routes>

@@ -2,13 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   SendHorizonal, Search, Loader2, AlertCircle, X, UserPlus,
   Check, MessageSquare, Users, Bell, ArrowLeft, XCircle, Hash,
-  Plus, Compass, Copy,
+  Plus, Copy,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import type {
   Profile, Friendship, DirectMessage,
-  Server, Channel, ServerMember, ServerMessage,
+  Server, Channel, ServerMember, ChannelMessage,
 } from '@/lib/types';
 
 function formatTime(iso: string): string {
@@ -43,7 +43,6 @@ type ViewMode = 'servers' | 'dms';
 
 export default function ChatPage() {
   const { user } = useAuth();
-  // Top-level view: servers vs DMs
   const [viewMode, setViewMode] = useState<ViewMode>('servers');
 
   // ===== Servers =====
@@ -51,10 +50,11 @@ export default function ChatPage() {
   const [activeServerId, setActiveServerId] = useState<string | null>(null);
   const [channels, setChannels] = useState<Channel[]>([]);
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
-  const [serverMessages, setServerMessages] = useState<ServerMessage[]>([]);
+  const [channelMessages, setChannelMessages] = useState<ChannelMessage[]>([]);
+  const [messageAuthors, setMessageAuthors] = useState<Map<string, Profile>>(new Map());
   const [loadingServers, setLoadingServers] = useState(true);
   const [loadingChannels, setLoadingChannels] = useState(false);
-  const [loadingServerMessages, setLoadingServerMessages] = useState(false);
+  const [loadingMessages, setLoadingMessages] = useState(false);
   const [showCreateServer, setShowCreateServer] = useState(false);
   const [newServerName, setNewServerName] = useState('');
   const [serverSearchQuery, setServerSearchQuery] = useState('');
@@ -109,19 +109,17 @@ export default function ChatPage() {
 
   useEffect(() => {
     messagesRef.current?.scrollTo({ top: messagesRef.current.scrollHeight, behavior: 'smooth' });
-  }, [serverMessages, dmMessages]);
+  }, [channelMessages, dmMessages]);
 
   // ===== Fetch joined servers =====
   const fetchServers = useCallback(async () => {
     if (!user) return;
     setLoadingServers(true);
-    // Get servers where user is a member
     const { data: memberships } = await supabase
       .from('server_members')
       .select('server_id')
       .eq('user_id', user.id);
     const serverIds = (memberships ?? []).map((m) => m.server_id);
-    // Also include servers the user owns (in case not in members yet)
     const { data: ownedServers } = await supabase
       .from('servers')
       .select('*')
@@ -167,7 +165,6 @@ export default function ChatPage() {
     fetchChannels();
   }, [fetchChannels]);
 
-  // Auto-select first channel
   useEffect(() => {
     if (channels.length > 0 && !channels.find((c) => c.id === activeChannelId)) {
       setActiveChannelId(channels[0].id);
@@ -176,29 +173,39 @@ export default function ChatPage() {
     }
   }, [channels, activeChannelId]);
 
-  // ===== Fetch server messages =====
-  const fetchServerMessages = useCallback(async () => {
+  // ===== Fetch channel messages + author profiles =====
+  const fetchChannelMessages = useCallback(async () => {
     if (!activeChannelId) {
-      setServerMessages([]);
+      setChannelMessages([]);
       return;
     }
-    setLoadingServerMessages(true);
+    setLoadingMessages(true);
     const { data, error: err } = await supabase
-      .from('server_messages')
+      .from('channel_messages')
       .select('*')
       .eq('channel_id', activeChannelId)
       .order('created_at', { ascending: true });
     if (err) {
       setError('Could not load messages.');
     } else {
-      setServerMessages((data ?? []) as ServerMessage[]);
+      const msgs = (data ?? []) as ChannelMessage[];
+      setChannelMessages(msgs);
+
+      const authorIds = [...new Set(msgs.map((m) => m.sender_id))];
+      if (authorIds.length > 0) {
+        const { data: profilesData } = await supabase
+          .from('profiles')
+          .select('*')
+          .in('id', authorIds);
+        setMessageAuthors(new Map((profilesData ?? []).map((p) => [p.id, p as Profile])));
+      }
     }
-    setLoadingServerMessages(false);
+    setLoadingMessages(false);
   }, [activeChannelId]);
 
   useEffect(() => {
-    if (viewMode === 'servers') fetchServerMessages();
-  }, [fetchServerMessages, viewMode]);
+    if (viewMode === 'servers') fetchChannelMessages();
+  }, [fetchChannelMessages, viewMode]);
 
   // ===== Fetch friends =====
   const fetchFriends = useCallback(async () => {
@@ -288,7 +295,6 @@ export default function ChatPage() {
       setCreatingServer(false);
       return;
     }
-    // Add owner as member
     await supabase
       .from('server_members')
       .insert({ server_id: data.id, user_id: user.id });
@@ -319,7 +325,6 @@ export default function ChatPage() {
 
   async function joinServer(server: Server) {
     if (!user) return;
-    // Check if already a member
     const { data: existing } = await supabase
       .from('server_members')
       .select('*')
@@ -457,15 +462,20 @@ export default function ChatPage() {
       setSending(true);
       setInput('');
       const { data, error: err } = await supabase
-        .from('server_messages')
-        .insert({ channel_id: activeChannelId, user_id: user.id, content: text })
+        .from('channel_messages')
+        .insert({ channel_id: activeChannelId, content: text })
         .select('*')
         .single();
       if (err) {
         setError('Failed to send message.');
         setInput(text);
       } else if (data) {
-        setServerMessages((prev) => [...prev, data as ServerMessage]);
+        setChannelMessages((prev) => [...prev, data as ChannelMessage]);
+        if (!messageAuthors.has(user.id)) {
+          setMessageAuthors((prev) => new Map(prev).set(user.id, {
+            id: user.id, email: user.email ?? '', username: null, avatar_url: null, created_at: '',
+          } as Profile));
+        }
       }
       setSending(false);
     } else if (viewMode === 'dms' && activeFriendId) {
@@ -486,38 +496,37 @@ export default function ChatPage() {
     }
   }
 
-  // ===== Grouped messages for DM =====
+  // ===== Grouped messages =====
   const groupedDmMessages = useMemo(() => {
     const groups: { day: string; label: string; items: DirectMessage[] }[] = [];
     for (const msg of dmMessages) {
       const day = new Date(msg.created_at).toDateString();
       const last = groups[groups.length - 1];
-      if (last && last.day === day) {
-        last.items.push(msg);
-      } else {
-        groups.push({ day, label: formatDayLabel(msg.created_at), items: [msg] });
-      }
+      if (last && last.day === day) last.items.push(msg);
+      else groups.push({ day, label: formatDayLabel(msg.created_at), items: [msg] });
     }
     return groups;
   }, [dmMessages]);
 
-  const groupedServerMessages = useMemo(() => {
-    const groups: { day: string; label: string; items: ServerMessage[] }[] = [];
-    for (const msg of serverMessages) {
+  const groupedChannelMessages = useMemo(() => {
+    const groups: { day: string; label: string; items: ChannelMessage[] }[] = [];
+    for (const msg of channelMessages) {
       const day = new Date(msg.created_at).toDateString();
       const last = groups[groups.length - 1];
-      if (last && last.day === day) {
-        last.items.push(msg);
-      } else {
-        groups.push({ day, label: formatDayLabel(msg.created_at), items: [msg] });
-      }
+      if (last && last.day === day) last.items.push(msg);
+      else groups.push({ day, label: formatDayLabel(msg.created_at), items: [msg] });
     }
     return groups;
-  }, [serverMessages]);
+  }, [channelMessages]);
 
-  const currentMessages = viewMode === 'servers' ? groupedServerMessages : groupedDmMessages;
-  const loadingCurrent = viewMode === 'servers' ? loadingServerMessages : loadingDmMessages;
+  const currentMessages = viewMode === 'servers' ? groupedChannelMessages : groupedDmMessages;
+  const loadingCurrent = viewMode === 'servers' ? loadingMessages : loadingDmMessages;
   const isMe = (msgUserId: string) => msgUserId === user?.id;
+
+  function getAuthorName(senderId: string): string {
+    const p = messageAuthors.get(senderId);
+    return p?.username ?? p?.email ?? 'Unknown';
+  }
 
   return (
     <div className="h-[calc(100vh-3.5rem)] md:h-screen flex relative bg-zinc-950">
@@ -536,17 +545,10 @@ export default function ChatPage() {
 
       {/* ===== Far-left sidebar — server list ===== */}
       <div className="hidden md:flex w-20 shrink-0 bg-zinc-950 border-r border-zinc-800/80 flex-col items-center py-3 gap-2 overflow-y-auto">
-        {/* DMs button */}
         <button
-          onClick={() => {
-            setViewMode('dms');
-            setActiveServerId(null);
-            setMobileThreadOpen(false);
-          }}
+          onClick={() => { setViewMode('dms'); setActiveServerId(null); setMobileThreadOpen(false); }}
           className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-all ${
-            viewMode === 'dms'
-              ? 'bg-blue-600 rounded-xl text-white'
-              : 'bg-zinc-800 text-zinc-400 hover:bg-blue-600 hover:rounded-xl hover:text-white'
+            viewMode === 'dms' ? 'bg-blue-600 rounded-xl text-white' : 'bg-zinc-800 text-zinc-400 hover:bg-blue-600 hover:rounded-xl hover:text-white'
           }`}
           title="Direct Messages"
         >
@@ -555,7 +557,6 @@ export default function ChatPage() {
 
         <div className="w-8 h-px bg-zinc-800 my-1" />
 
-        {/* Server icons */}
         {loadingServers ? (
           <Loader2 className="w-5 h-5 text-zinc-600 animate-spin" />
         ) : (
@@ -564,31 +565,19 @@ export default function ChatPage() {
             return (
               <button
                 key={server.id}
-                onClick={() => {
-                  setViewMode('servers');
-                  setActiveServerId(server.id);
-                  setMobileThreadOpen(false);
-                }}
+                onClick={() => { setViewMode('servers'); setActiveServerId(server.id); setMobileThreadOpen(false); }}
                 className={`relative w-12 h-12 rounded-2xl flex items-center justify-center text-sm font-bold transition-all shrink-0 ${
-                  active
-                    ? 'bg-blue-600 rounded-xl text-white'
-                    : 'bg-zinc-800 text-zinc-400 hover:bg-blue-600 hover:rounded-xl hover:text-white'
+                  active ? 'bg-blue-600 rounded-xl text-white' : 'bg-zinc-800 text-zinc-400 hover:bg-blue-600 hover:rounded-xl hover:text-white'
                 }`}
                 title={server.name}
               >
                 {server.name.slice(0, 1).toUpperCase()}
-                {/* Active indicator */}
-                <span
-                  className={`absolute -left-3 top-1/2 -translate-y-1/2 w-1.5 rounded-r-full transition-all ${
-                    active ? 'h-8 bg-white' : 'h-2 bg-zinc-600 group-hover:h-4'
-                  }`}
-                />
+                <span className={`absolute -left-3 top-1/2 -translate-y-1/2 w-1.5 rounded-r-full transition-all ${active ? 'h-8 bg-white' : 'h-2 bg-zinc-600'}`} />
               </button>
             );
           })
         )}
 
-        {/* + Create / search server */}
         <button
           onClick={() => setShowCreateServer(true)}
           className="w-12 h-12 rounded-2xl flex items-center justify-center bg-zinc-800 text-emerald-400 hover:bg-emerald-600 hover:rounded-xl hover:text-white transition-all shrink-0"
@@ -602,7 +591,6 @@ export default function ChatPage() {
       <div className={`w-60 shrink-0 bg-zinc-900/80 border-r border-zinc-800 flex flex-col h-full ${mobileThreadOpen ? 'hidden md:flex' : 'flex'}`}>
         {viewMode === 'servers' && activeServer ? (
           <>
-            {/* Server header */}
             <div className="flex items-center justify-between px-4 h-14 border-b border-zinc-800 shrink-0">
               <h2 className="text-sm font-semibold text-white truncate">{activeServer.name}</h2>
               {activeServer.owner_id === user?.id && (
@@ -615,7 +603,6 @@ export default function ChatPage() {
                 </button>
               )}
             </div>
-            {/* Channel list */}
             <div className="flex-1 overflow-y-auto py-2 px-2">
               {loadingChannels ? (
                 <div className="flex justify-center py-8">
@@ -636,10 +623,7 @@ export default function ChatPage() {
                     return (
                       <li key={ch.id}>
                         <button
-                          onClick={() => {
-                            setActiveChannelId(ch.id);
-                            setMobileThreadOpen(true);
-                          }}
+                          onClick={() => { setActiveChannelId(ch.id); setMobileThreadOpen(true); }}
                           className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
                             active ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
                           }`}
@@ -656,7 +640,6 @@ export default function ChatPage() {
           </>
         ) : (
           <>
-            {/* DM header */}
             <div className="flex items-center gap-2 px-4 h-14 border-b border-zinc-800 shrink-0">
               <h2 className="text-sm font-semibold text-white">Direct Messages</h2>
               <div className="ml-auto flex items-center gap-1">
@@ -681,7 +664,6 @@ export default function ChatPage() {
                 </button>
               </div>
             </div>
-            {/* Friends list */}
             <div className="flex-1 overflow-y-auto">
               {loadingFriends ? (
                 <div className="flex justify-center py-10">
@@ -701,10 +683,7 @@ export default function ChatPage() {
                     return (
                       <li key={f.id}>
                         <button
-                          onClick={() => {
-                            setActiveFriendId(f.profile.id);
-                            setMobileThreadOpen(true);
-                          }}
+                          onClick={() => { setActiveFriendId(f.profile.id); setMobileThreadOpen(true); }}
                           className={`w-full flex items-center gap-3 px-4 py-3 transition-colors text-left ${
                             active ? 'bg-zinc-800/80 border-l-2 border-blue-500' : 'border-l-2 border-transparent hover:bg-zinc-800/40'
                           }`}
@@ -731,7 +710,6 @@ export default function ChatPage() {
 
       {/* ===== Right side — chat ===== */}
       <div className={`flex-1 flex flex-col h-full min-w-0 ${mobileThreadOpen ? 'flex' : 'hidden md:flex'}`}>
-        {/* Chat header */}
         {(viewMode === 'servers' && activeChannel) || (viewMode === 'dms' && activeFriend) ? (
           <>
             <div className="flex items-center gap-3 px-5 h-14 border-b border-zinc-800 bg-zinc-900/40 shrink-0">
@@ -762,7 +740,6 @@ export default function ChatPage() {
               ) : null}
             </div>
 
-            {/* Messages */}
             <div ref={messagesRef} className="flex-1 overflow-y-auto px-4 md:px-8 py-6 bg-zinc-950/40">
               <div className="max-w-3xl mx-auto space-y-1">
                 {loadingCurrent ? (
@@ -786,20 +763,29 @@ export default function ChatPage() {
                         </span>
                       </div>
                       {group.items.map((msg) => {
-                        const mine = viewMode === 'servers'
-                          ? isMe((msg as ServerMessage).user_id)
-                          : isMe((msg as DirectMessage).sender_id);
-                        const content = (msg as { content: string }).content;
+                        const rawMsg = msg as { id: string; content: string; created_at: string; sender_id?: string; user_id?: string };
+                        const msgUserId = viewMode === 'servers'
+                          ? (rawMsg as ChannelMessage).sender_id
+                          : (rawMsg as DirectMessage).sender_id;
+                        const mine = isMe(msgUserId);
+                        const content = rawMsg.content;
+                        const authorName = viewMode === 'servers' ? getAuthorName(msgUserId) : '';
+
                         return (
-                          <div key={(msg as { id: string }).id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
+                          <div key={rawMsg.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
                             <div className={`max-w-[75%] flex flex-col ${mine ? 'items-end' : 'items-start'}`}>
+                              {viewMode === 'servers' && !mine && (
+                                <span className="text-[11px] font-medium text-zinc-400 mb-0.5 px-1">
+                                  {authorName}
+                                </span>
+                              )}
                               <div className={`px-3.5 py-2 text-sm leading-relaxed break-words ${
                                 mine ? 'bg-blue-600 text-white rounded-2xl rounded-br-md' : 'bg-zinc-800 text-zinc-100 rounded-2xl rounded-bl-md'
                               }`}>
                                 <p className="whitespace-pre-wrap">{content}</p>
                               </div>
                               <span className="text-[10px] text-zinc-600 mt-0.5 px-1">
-                                {formatTime((msg as { created_at: string }).created_at)}
+                                {formatTime(rawMsg.created_at)}
                               </span>
                             </div>
                           </div>
@@ -811,7 +797,6 @@ export default function ChatPage() {
               </div>
             </div>
 
-            {/* Input */}
             <form onSubmit={handleSend} className="shrink-0 border-t border-zinc-800 bg-zinc-900/40 p-3">
               {error && (
                 <div className="max-w-3xl mx-auto mb-2 flex items-center gap-2 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2">
@@ -884,8 +869,6 @@ export default function ChatPage() {
                 <X className="w-4 h-4" />
               </button>
             </div>
-
-            {/* Create section */}
             <div className="mb-5">
               <p className="text-xs font-medium text-zinc-400 mb-2 uppercase tracking-wider">Create a new server</p>
               <div className="flex items-center gap-2">
@@ -905,14 +888,10 @@ export default function ChatPage() {
                 </button>
               </div>
             </div>
-
-            {/* Join by invite code */}
             <div className="mb-5">
               <p className="text-xs font-medium text-zinc-400 mb-2 uppercase tracking-wider">Join with invite code</p>
               <InviteCodeJoin onJoin={joinByInviteCode} />
             </div>
-
-            {/* Search servers */}
             <div>
               <p className="text-xs font-medium text-zinc-400 mb-2 uppercase tracking-wider">Search public servers</p>
               <div className="flex items-center gap-2 mb-3">
@@ -1110,7 +1089,6 @@ export default function ChatPage() {
   );
 }
 
-// ===== Invite code join component =====
 function InviteCodeJoin({ onJoin }: { onJoin: (code: string) => void }) {
   const [code, setCode] = useState('');
   const [joining, setJoining] = useState(false);

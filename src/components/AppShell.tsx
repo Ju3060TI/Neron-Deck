@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Vault, MessageSquare, Bot, Settings as SettingsIcon, LogOut, Menu, X } from 'lucide-react';
+import { Vault, MessageSquare, Bot, Settings as SettingsIcon, LogOut, Menu, X, Gamepad2 } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 
 const navItems = [
   { to: '/vault', label: 'Vault', icon: Vault },
   { to: '/agents', label: 'Agents', icon: Bot },
   { to: '/chat', label: 'Chat', icon: MessageSquare },
+  { to: '/games', label: 'Games', icon: Gamepad2 },
 ];
 
 function Logo() {
