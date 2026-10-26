@@ -2,10 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   SendHorizonal, Search, Loader2, AlertCircle, X, UserPlus,
   Check, MessageSquare, Users, Bell, ArrowLeft, XCircle, Hash,
-  Plus, Copy,
+  Plus, Copy, Volume2, Mic, MicOff, PhoneOff,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
+import { useVoiceChannel } from '@/lib/useVoiceChannel';
 import type {
   Profile, Friendship, DirectMessage,
   Server, Channel, ServerMember, ChannelMessage,
@@ -40,10 +41,12 @@ interface FriendWithProfile extends Friendship {
 }
 
 type ViewMode = 'servers' | 'dms';
+type NewChannelType = 'text' | 'voice';
 
 export default function ChatPage() {
   const { user } = useAuth();
   const [viewMode, setViewMode] = useState<ViewMode>('servers');
+  const voice = useVoiceChannel();
 
   // ===== Servers =====
   const [joinedServers, setJoinedServers] = useState<Server[]>([]);
@@ -63,6 +66,7 @@ export default function ChatPage() {
   const [creatingServer, setCreatingServer] = useState(false);
   const [showCreateChannel, setShowCreateChannel] = useState(false);
   const [newChannelName, setNewChannelName] = useState('');
+  const [newChannelType, setNewChannelType] = useState<NewChannelType>('text');
 
   // ===== DMs / Friends =====
   const [friends, setFriends] = useState<FriendWithProfile[]>([]);
@@ -167,7 +171,8 @@ export default function ChatPage() {
 
   useEffect(() => {
     if (channels.length > 0 && !channels.find((c) => c.id === activeChannelId)) {
-      setActiveChannelId(channels[0].id);
+      const firstText = channels.find((c) => c.type === 'text');
+      setActiveChannelId(firstText ? firstText.id : channels[0].id);
     } else if (channels.length === 0) {
       setActiveChannelId(null);
     }
@@ -206,6 +211,13 @@ export default function ChatPage() {
   useEffect(() => {
     if (viewMode === 'servers') fetchChannelMessages();
   }, [fetchChannelMessages, viewMode]);
+
+  // Leave voice when active channel changes away from the voice channel
+  useEffect(() => {
+    if (voice.joined && activeChannel && activeChannel.type !== 'voice') {
+      voice.leaveVoice();
+    }
+  }, [activeChannel, voice]);
 
   // ===== Fetch friends =====
   const fetchFriends = useCallback(async () => {
@@ -373,7 +385,7 @@ export default function ChatPage() {
     if (!name || !activeServerId) return;
     const { data, error: err } = await supabase
       .from('channels')
-      .insert({ server_id: activeServerId, name })
+      .insert({ server_id: activeServerId, name, type: newChannelType })
       .select('*')
       .single();
     if (err || !data) {
@@ -383,7 +395,23 @@ export default function ChatPage() {
     setChannels((prev) => [...prev, data as Channel]);
     setActiveChannelId(data.id);
     setNewChannelName('');
+    setNewChannelType('text');
     setShowCreateChannel(false);
+  }
+
+  async function joinVoiceChannel(channel: Channel) {
+    if (!user) return;
+    if (voice.joined) voice.leaveVoice();
+    setActiveChannelId(channel.id);
+    setMobileThreadOpen(true);
+    const profile: Profile = {
+      id: user.id,
+      email: user.email ?? '',
+      username: null,
+      avatar_url: null,
+      created_at: '',
+    };
+    await voice.joinVoice(channel.id, user.id, profile);
   }
 
   // ===== Friend actions =====
@@ -617,24 +645,64 @@ export default function ChatPage() {
                   )}
                 </div>
               ) : (
-                <ul className="space-y-0.5">
-                  {channels.map((ch) => {
-                    const active = activeChannelId === ch.id;
-                    return (
-                      <li key={ch.id}>
-                        <button
-                          onClick={() => { setActiveChannelId(ch.id); setMobileThreadOpen(true); }}
-                          className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
-                            active ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
-                          }`}
-                        >
-                          <Hash className="w-4 h-4 text-zinc-500 shrink-0" />
-                          <span className="truncate">{ch.name}</span>
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
+                <>
+                  {channels.some((c) => c.type === 'text') && (
+                    <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider px-3 py-1 mt-1">Text Channels</p>
+                  )}
+                  <ul className="space-y-0.5">
+                    {channels.filter((c) => c.type === 'text').map((ch) => {
+                      const active = activeChannelId === ch.id;
+                      return (
+                        <li key={ch.id}>
+                          <button
+                            onClick={() => { setActiveChannelId(ch.id); setMobileThreadOpen(true); }}
+                            className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
+                              active ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
+                            }`}
+                          >
+                            <Hash className="w-4 h-4 text-zinc-500 shrink-0" />
+                            <span className="truncate">{ch.name}</span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  {channels.some((c) => c.type === 'voice') && (
+                    <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider px-3 py-1 mt-3">Voice Channels</p>
+                  )}
+                  <ul className="space-y-0.5">
+                    {channels.filter((c) => c.type === 'voice').map((ch) => {
+                      const active = activeChannelId === ch.id;
+                      const inThisVoice = voice.joined && activeChannelId === ch.id;
+                      return (
+                        <li key={ch.id}>
+                          <button
+                            onClick={() => joinVoiceChannel(ch)}
+                            className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
+                              active ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
+                            }`}
+                          >
+                            <Volume2 className={`w-4 h-4 shrink-0 ${inThisVoice ? 'text-emerald-400' : 'text-zinc-500'}`} />
+                            <span className="truncate">{ch.name}</span>
+                            {inThisVoice && (
+                              <span className="ml-auto text-[10px] text-emerald-400 font-medium">Live</span>
+                            )}
+                          </button>
+                          {inThisVoice && voice.participants.length > 0 && (
+                            <div className="ml-7 mb-1 space-y-0.5">
+                              {voice.participants.map((p) => (
+                                <div key={p.userId} className="flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] text-zinc-400">
+                                  {p.muted ? <MicOff className="w-3 h-3 text-red-400" /> : <Mic className="w-3 h-3 text-emerald-400" />}
+                                  <span className="truncate">{p.profile?.username ?? p.profile?.email ?? 'Unknown'}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </>
               )}
             </div>
           </>
@@ -724,8 +792,18 @@ export default function ChatPage() {
               )}
               {viewMode === 'servers' && activeChannel ? (
                 <>
-                  <Hash className="w-5 h-5 text-zinc-500 shrink-0" />
+                  {activeChannel.type === 'voice' ? (
+                    <Volume2 className="w-5 h-5 text-zinc-500 shrink-0" />
+                  ) : (
+                    <Hash className="w-5 h-5 text-zinc-500 shrink-0" />
+                  )}
                   <span className="text-sm font-semibold text-white truncate">{activeChannel.name}</span>
+                  {viewMode === 'servers' && activeChannel.type === 'voice' && voice.joined && (
+                    <span className="ml-2 flex items-center gap-1 text-[10px] font-medium text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      Connected
+                    </span>
+                  )}
                 </>
               ) : activeFriend ? (
                 <>
@@ -741,6 +819,95 @@ export default function ChatPage() {
             </div>
 
             <div ref={messagesRef} className="flex-1 overflow-y-auto px-4 md:px-8 py-6 bg-zinc-950/40">
+              {viewMode === 'servers' && activeChannel && activeChannel.type === 'voice' ? (
+                <div className="max-w-2xl mx-auto">
+                  {voice.error && (
+                    <div className="mb-4 flex items-center gap-2 bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3">
+                      <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                      <span className="text-sm text-red-400">{voice.error}</span>
+                    </div>
+                  )}
+                  <div className="flex flex-col items-center justify-center py-8">
+                    <div className={`w-24 h-24 rounded-full flex items-center justify-center mb-4 transition-all ${
+                      voice.joined ? 'bg-emerald-500/15 border-2 border-emerald-500/40' : 'bg-zinc-800/60 border-2 border-zinc-700'
+                    }`}>
+                      {voice.connecting ? (
+                        <Loader2 className="w-8 h-8 text-zinc-400 animate-spin" />
+                      ) : (
+                        <Volume2 className={`w-8 h-8 ${voice.joined ? 'text-emerald-400' : 'text-zinc-500'}`} />
+                      )}
+                    </div>
+                    <p className="text-sm font-semibold text-white mb-1">
+                      {voice.joined ? 'Connected to voice' : voice.connecting ? 'Connecting...' : 'Voice channel'}
+                    </p>
+                    <p className="text-xs text-zinc-500 mb-6">
+                      {voice.joined ? `${voice.participants.length} participant${voice.participants.length === 1 ? '' : 's'}` : 'Click join to start talking'}
+                    </p>
+
+                    {!voice.joined ? (
+                      <button
+                        onClick={() => joinVoiceChannel(activeChannel)}
+                        disabled={voice.connecting}
+                        className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 rounded-xl text-sm font-medium text-white transition-colors"
+                      >
+                        {voice.connecting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mic className="w-4 h-4" />}
+                        Join Voice
+                      </button>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={voice.toggleMute}
+                          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors ${
+                            voice.muted ? 'bg-red-600/20 text-red-400 hover:bg-red-600/30' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+                          }`}
+                        >
+                          {voice.muted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                          {voice.muted ? 'Unmute' : 'Mute'}
+                        </button>
+                        <button
+                          onClick={voice.leaveVoice}
+                          className="flex items-center gap-2 px-4 py-2.5 bg-red-600 hover:bg-red-500 rounded-xl text-sm font-medium text-white transition-colors"
+                        >
+                          <PhoneOff className="w-4 h-4" />
+                          Leave
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {voice.joined && voice.participants.length > 0 && (
+                    <div className="mt-2">
+                      <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider mb-2 px-1">Participants</p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {voice.participants.map((p) => {
+                          const name = p.profile?.username ?? p.profile?.email ?? 'You';
+                          const isMe = p.userId === user?.id;
+                          return (
+                            <div key={p.userId} className="flex items-center gap-3 p-3 bg-zinc-900/60 border border-zinc-800 rounded-lg">
+                              <div className={`w-10 h-10 rounded-full flex items-center justify-center text-xs font-semibold shrink-0 ${
+                                isMe ? 'bg-blue-600 text-white' : 'bg-zinc-700 text-zinc-300'
+                              }`}>
+                                {initials(name)}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm font-medium text-white truncate">{name}{isMe && ' (you)'}</p>
+                                <p className="text-[11px] text-zinc-500">
+                                  {p.muted ? 'Muted' : 'Speaking'}
+                                </p>
+                              </div>
+                              {p.muted ? (
+                                <MicOff className="w-4 h-4 text-red-400 shrink-0" />
+                              ) : (
+                                <Mic className="w-4 h-4 text-emerald-400 shrink-0" />
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
               <div className="max-w-3xl mx-auto space-y-1">
                 {loadingCurrent ? (
                   <div className="flex justify-center py-10">
@@ -795,8 +962,10 @@ export default function ChatPage() {
                   ))
                 )}
               </div>
+              )}
             </div>
 
+            {viewMode === 'servers' && activeChannel && activeChannel.type === 'voice' ? null : (
             <form onSubmit={handleSend} className="shrink-0 border-t border-zinc-800 bg-zinc-900/40 p-3">
               {error && (
                 <div className="max-w-3xl mx-auto mb-2 flex items-center gap-2 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2">
@@ -835,6 +1004,7 @@ export default function ChatPage() {
                 </button>
               </div>
             </form>
+            )}
           </>
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center text-center px-6">
@@ -950,8 +1120,39 @@ export default function ChatPage() {
           <div className="absolute inset-0 bg-black/75 backdrop-blur-sm" onClick={() => setShowCreateChannel(false)} />
           <div className="relative bg-zinc-900 border border-zinc-800 rounded-xl p-6 w-full max-w-sm">
             <h3 className="text-sm font-semibold text-white mb-4">Create a channel</h3>
+            <div className="mb-4">
+              <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider mb-2">Channel Type</p>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => setNewChannelType('text')}
+                  className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border text-sm transition-colors ${
+                    newChannelType === 'text'
+                      ? 'bg-blue-600/15 border-blue-500 text-blue-400'
+                      : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  <Hash className="w-4 h-4" />
+                  Text
+                </button>
+                <button
+                  onClick={() => setNewChannelType('voice')}
+                  className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border text-sm transition-colors ${
+                    newChannelType === 'voice'
+                      ? 'bg-emerald-600/15 border-emerald-500 text-emerald-400'
+                      : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  <Volume2 className="w-4 h-4" />
+                  Voice
+                </button>
+              </div>
+            </div>
             <div className="flex items-center gap-2 bg-zinc-800 border border-zinc-700 rounded-lg px-3 mb-4">
-              <Hash className="w-4 h-4 text-zinc-500 shrink-0" />
+              {newChannelType === 'voice' ? (
+                <Volume2 className="w-4 h-4 text-zinc-500 shrink-0" />
+              ) : (
+                <Hash className="w-4 h-4 text-zinc-500 shrink-0" />
+              )}
               <input
                 value={newChannelName}
                 onChange={(e) => setNewChannelName(e.target.value)}
@@ -962,7 +1163,7 @@ export default function ChatPage() {
               />
             </div>
             <div className="flex gap-2 justify-end">
-              <button onClick={() => setShowCreateChannel(false)} className="px-4 py-2 text-sm text-zinc-300 hover:text-white">Cancel</button>
+              <button onClick={() => { setShowCreateChannel(false); setNewChannelType('text'); }} className="px-4 py-2 text-sm text-zinc-300 hover:text-white">Cancel</button>
               <button
                 onClick={createChannel}
                 disabled={!newChannelName.trim()}
