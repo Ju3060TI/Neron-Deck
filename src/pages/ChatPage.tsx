@@ -8,6 +8,7 @@ import type { RealtimeChannel } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { useVoiceChannel } from '@/lib/useVoiceChannel';
+import UserAvatar from '@/components/UserAvatar';
 import type {
   Profile, Friendship, DirectMessage,
   Server, Channel, ServerMember, ChannelMessage,
@@ -25,12 +26,6 @@ function formatDayLabel(iso: string): string {
   if (d.toDateString() === today.toDateString()) return 'Today';
   if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-}
-
-function initials(name: string): string {
-  const parts = name.split(/[._ -]/).filter(Boolean);
-  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
-  return name.slice(0, 2).toUpperCase();
 }
 
 function genInviteCode(): string {
@@ -809,9 +804,7 @@ export default function ChatPage() {
                             active ? 'bg-zinc-800/80 border-l-2 border-blue-500' : 'border-l-2 border-transparent hover:bg-zinc-800/40'
                           }`}
                         >
-                          <div className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-semibold shrink-0 ${active ? 'bg-blue-600 text-white' : 'bg-zinc-700 text-zinc-300'}`}>
-                            {initials(name)}
-                          </div>
+                          <UserAvatar name={name} avatarUrl={f.profile.avatar_url} className="w-9 h-9 text-xs" />
                           <div className="min-w-0">
                             <p className={`text-sm font-medium truncate ${active ? 'text-white' : 'text-zinc-200'}`}>
                               {f.profile.username ?? name}
@@ -860,9 +853,11 @@ export default function ChatPage() {
                 </>
               ) : activeFriend ? (
                 <>
-                  <div className="w-9 h-9 rounded-full bg-zinc-700 flex items-center justify-center text-xs font-semibold text-zinc-300 shrink-0">
-                    {initials(activeFriend.profile.username ?? activeFriend.profile.email)}
-                  </div>
+                  <UserAvatar
+                    name={activeFriend.profile.username ?? activeFriend.profile.email}
+                    avatarUrl={activeFriend.profile.avatar_url}
+                    className="w-9 h-9 text-xs"
+                  />
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-white truncate">{activeFriend.profile.username ?? activeFriend.profile.email}</p>
                     <p className="text-[11px] text-zinc-500">{activeFriend.profile.email}</p>
@@ -937,11 +932,7 @@ export default function ChatPage() {
                           const isMe = p.userId === user?.id;
                           return (
                             <div key={p.userId} className="flex items-center gap-3 p-3 bg-zinc-900/60 border border-zinc-800 rounded-lg">
-                              <div className={`w-10 h-10 rounded-full flex items-center justify-center text-xs font-semibold shrink-0 ${
-                                isMe ? 'bg-blue-600 text-white' : 'bg-zinc-700 text-zinc-300'
-                              }`}>
-                                {initials(name)}
-                              </div>
+                              <UserAvatar name={name} avatarUrl={p.profile?.avatar_url} className="w-10 h-10 text-xs" />
                               <div className="min-w-0 flex-1">
                                 <p className="text-sm font-medium text-white truncate">{name}{isMe && ' (you)'}</p>
                                 <p className="text-[11px] text-zinc-500">
@@ -990,9 +981,17 @@ export default function ChatPage() {
                         const mine = isMe(msgUserId);
                         const content = rawMsg.content;
                         const authorName = viewMode === 'servers' ? getAuthorName(msgUserId) : '';
+                        const author = viewMode === 'servers' ? messageAuthors.get(msgUserId) : activeFriend?.profile;
 
                         return (
-                          <div key={rawMsg.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
+                          <div key={rawMsg.id} className={`flex gap-2 ${mine ? 'justify-end' : 'justify-start'}`}>
+                            {!mine && (
+                              <UserAvatar
+                                name={author?.username ?? author?.email ?? authorName}
+                                avatarUrl={author?.avatar_url}
+                                className="w-8 h-8 text-xs mt-1 shrink-0"
+                              />
+                            )}
                             <div className={`max-w-[75%] flex flex-col ${mine ? 'items-end' : 'items-start'}`}>
                               {viewMode === 'servers' && !mine && (
                                 <span className="text-[11px] font-medium text-zinc-400 mb-0.5 px-1">
@@ -1262,9 +1261,7 @@ export default function ChatPage() {
                 <ul className="space-y-1">
                   {searchResults.map((p) => (
                     <li key={p.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-zinc-800">
-                      <div className="w-8 h-8 rounded-full bg-zinc-700 flex items-center justify-center text-xs font-semibold text-zinc-300">
-                        {initials(p.username ?? p.email)}
-                      </div>
+                      <UserAvatar name={p.username ?? p.email} avatarUrl={p.avatar_url} className="w-8 h-8 text-xs" />
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium text-white truncate">{p.username ?? p.email}</p>
                         <p className="text-[11px] text-zinc-600 truncate">{p.email}</p>
@@ -1311,9 +1308,11 @@ export default function ChatPage() {
               <ul className="space-y-2">
                 {pendingRequests.map((req) => (
                   <li key={req.id} className="flex items-center gap-3 p-2 rounded-lg bg-zinc-800/60">
-                    <div className="w-9 h-9 rounded-full bg-zinc-700 flex items-center justify-center text-xs font-semibold text-zinc-300">
-                      {initials(req.profile.username ?? req.profile.email)}
-                    </div>
+                    <UserAvatar
+                      name={req.profile.username ?? req.profile.email}
+                      avatarUrl={req.profile.avatar_url}
+                      className="w-9 h-9 text-xs"
+                    />
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-white truncate">{req.profile.username ?? req.profile.email}</p>
                       <p className="text-[11px] text-zinc-600 truncate">{req.profile.email}</p>

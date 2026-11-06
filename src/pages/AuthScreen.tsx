@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import { Loader2, Hexagon, AlertCircle, UserPlus, LogIn } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { USERNAME_PATTERN } from '@/lib/types';
 
 export default function AuthScreen() {
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
+  const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -29,10 +31,20 @@ export default function AuthScreen() {
       return;
     }
 
+    const trimmedUsername = username.trim();
+    if (mode === 'signup' && !USERNAME_PATTERN.test(trimmedUsername)) {
+      setError('Nutzername: 3 bis 20 Zeichen, nur Buchstaben, Zahlen und Unterstrich.');
+      return;
+    }
+
     setBusy(true);
     try {
       if (mode === 'signup') {
-        const { data, error: err } = await supabase.auth.signUp({ email: email.trim(), password });
+        const { data, error: err } = await supabase.auth.signUp({
+          email: email.trim(),
+          password,
+          options: { data: { username: trimmedUsername } },
+        });
         if (err) throw err;
         if (data.session) {
           setNotice('Account created. Welcome aboard.');
@@ -100,6 +112,26 @@ export default function AuthScreen() {
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-5">
+            {mode === 'signup' && (
+              <div>
+                <label htmlFor="username" className="font-mono text-[10px] tracking-widest text-gray-400 uppercase block mb-2">
+                  Nutzername
+                </label>
+                <div className="terminal-line">
+                  <span className="prompt select-none">&gt;</span>
+                  <input
+                    id="username"
+                    type="text"
+                    autoComplete="username"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    placeholder="commander_01"
+                    spellCheck={false}
+                  />
+                </div>
+              </div>
+            )}
+
             <div>
               <label htmlFor="email" className="font-mono text-[10px] tracking-widest text-gray-400 uppercase block mb-2">
                 Operator ID

@@ -1,8 +1,21 @@
-import { useState } from 'react';
-import { Eye, EyeOff, Check, Cloud, Loader2, Bot, CloudOff } from 'lucide-react';
-import { GROQ_KEY_STORAGE } from '@/lib/types';
+import { useEffect, useState } from 'react';
+import { Eye, EyeOff, Check, Cloud, Loader2, Bot, CloudOff, UserRound } from 'lucide-react';
+import { GROQ_KEY_STORAGE, USERNAME_PATTERN } from '@/lib/types';
+import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/lib/auth';
+import UserAvatar from '@/components/UserAvatar';
 
 export default function SettingsPage() {
+  const { user } = useAuth();
+  const userId = user?.id;
+
+  const [savedUsername, setSavedUsername] = useState('');
+  const [usernameInput, setUsernameInput] = useState('');
+  const [loadingProfile, setLoadingProfile] = useState(true);
+  const [savingUsername, setSavingUsername] = useState(false);
+  const [usernameSaved, setUsernameSaved] = useState(false);
+  const [usernameError, setUsernameError] = useState<string | null>(null);
+
   const [keyInput, setKeyInput] = useState(() => {
     try {
       return sessionStorage.getItem(GROQ_KEY_STORAGE) ?? '';
@@ -15,6 +28,68 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
 
   const keyLoaded = keyInput.trim().length > 0;
+
+  useEffect(() => {
+    if (!userId) return;
+    let cancelled = false;
+    supabase
+      .from('profiles')
+      .select('username')
+      .eq('id', userId)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (error) {
+          setUsernameError('Profil konnte nicht geladen werden.');
+        } else {
+          const name = data?.username ?? '';
+          setSavedUsername(name);
+          setUsernameInput(name);
+        }
+        setLoadingProfile(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
+  async function handleUsernameSave(e: React.FormEvent) {
+    e.preventDefault();
+    if (!userId) return;
+    const trimmed = usernameInput.trim();
+    if (!USERNAME_PATTERN.test(trimmed)) {
+      setUsernameError('Nutzername: 3 bis 20 Zeichen, nur Buchstaben, Zahlen und Unterstrich.');
+      return;
+    }
+
+    setSavingUsername(true);
+    setUsernameError(null);
+    setUsernameSaved(false);
+    const { data, error } = await supabase
+      .from('profiles')
+      .update({ username: trimmed })
+      .eq('id', userId)
+      .select('username')
+      .maybeSingle();
+    setSavingUsername(false);
+
+    if (error) {
+      setUsernameError(
+        error.code === '23505'
+          ? 'Dieser Nutzername ist bereits vergeben.'
+          : 'Nutzername konnte nicht gespeichert werden.'
+      );
+      return;
+    }
+    if (!data) {
+      setUsernameError('Nutzername konnte nicht gespeichert werden.');
+      return;
+    }
+    setSavedUsername(trimmed);
+    setUsernameInput(trimmed);
+    setUsernameSaved(true);
+    window.setTimeout(() => setUsernameSaved(false), 2000);
+  }
 
   function handleSave(e: React.FormEvent) {
     e.preventDefault();
@@ -40,6 +115,67 @@ export default function SettingsPage() {
         <p className="sys-label mb-1">// SYSTEM CONFIGURATION</p>
         <h1 className="text-xl font-semibold text-white tracking-tight">Settings</h1>
       </div>
+
+      {/* Profile */}
+      <section className="glass-panel p-5 md:p-6 mb-6">
+        <div className="flex items-center gap-3 mb-1">
+          <UserRound className="w-4 h-4 text-accent drop-shadow-[0_0_6px_rgba(59,130,246,0.8)]" />
+          <h2 className="sys-label">// PROFIL</h2>
+        </div>
+        <p className="font-mono text-[11px] text-gray-500 leading-relaxed mb-6 mt-2">
+          Unter diesem Namen finden dich Freunde in der Suche. Erlaubt sind 3 bis 20 Zeichen:
+          Buchstaben, Zahlen und Unterstrich.
+        </p>
+
+        <div className="flex items-center gap-4 mb-6">
+          <UserAvatar
+            name={savedUsername || user?.email || '?'}
+            className="w-14 h-14 text-sm"
+          />
+          <p className="font-mono text-[11px] text-gray-400">
+            {savedUsername || 'Noch kein Nutzername gesetzt'}
+          </p>
+        </div>
+
+        <form onSubmit={handleUsernameSave} className="space-y-5">
+          <div>
+            <label htmlFor="username" className="font-mono text-[10px] tracking-widest text-gray-400 uppercase block mb-2">
+              Nutzername
+            </label>
+            <div className="terminal-line">
+              <span className="prompt select-none">&gt;</span>
+              <input
+                id="username"
+                type="text"
+                value={usernameInput}
+                onChange={(e) => setUsernameInput(e.target.value)}
+                placeholder="commander_01"
+                autoComplete="off"
+                spellCheck={false}
+                maxLength={20}
+                disabled={loadingProfile}
+              />
+            </div>
+          </div>
+
+          {usernameError && (
+            <p className="font-mono text-xs text-red-300 leading-relaxed">{usernameError}</p>
+          )}
+
+          <button
+            type="submit"
+            disabled={savingUsername || loadingProfile || usernameInput.trim() === savedUsername}
+            className="flex items-center gap-2 bg-accent hover:bg-accent-hover disabled:opacity-60 disabled:cursor-not-allowed text-white font-mono text-xs tracking-widest px-5 py-2.5 rounded-md transition-all shadow-[0_0_14px_rgba(59,130,246,0.35)] hover:shadow-[0_0_20px_rgba(59,130,246,0.55)]"
+          >
+            {savingUsername ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : usernameSaved ? (
+              <Check className="w-3.5 h-3.5" />
+            ) : null}
+            {usernameSaved ? 'GESPEICHERT' : 'SPEICHERN'}
+          </button>
+        </form>
+      </section>
 
       {/* AI Subsystems */}
       <section className="glass-panel p-5 md:p-6 mb-6">

@@ -30,6 +30,7 @@ export type SaveState = 'idle' | 'saving' | 'saved' | 'error';
 export const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 export const GROQ_MODEL = 'openai/gpt-oss-120b';
 export const GROQ_KEY_STORAGE = 'neron-groq-api-key';
+export const USERNAME_PATTERN = /^[A-Za-z0-9_]{3,20}$/;
 
 // ===== AI Sessions =====
 export interface AiSession {
