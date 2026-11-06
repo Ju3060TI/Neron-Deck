@@ -4,6 +4,7 @@ import {
   Check, MessageSquare, Users, Bell, ArrowLeft, XCircle, Hash,
   Plus, Copy, Volume2, Mic, MicOff, PhoneOff,
 } from 'lucide-react';
+import type { RealtimeChannel } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { useVoiceChannel } from '@/lib/useVoiceChannel';
@@ -291,6 +292,58 @@ export default function ChatPage() {
     if (viewMode === 'dms') fetchDmMessages();
   }, [fetchDmMessages, viewMode]);
 
+  // ===== Realtime: new messages in the open text channel or DM =====
+  const userId = user?.id;
+  const isTextChannel = activeChannel?.type === 'text';
+
+  useEffect(() => {
+    if (!userId) return;
+
+    const fetchAuthor = async (authorId: string) => {
+      const { data } = await supabase.from('profiles').select('*').eq('id', authorId).maybeSingle();
+      if (!data) return;
+      setMessageAuthors((prev) => (prev.has(authorId) ? prev : new Map(prev).set(authorId, data as Profile)));
+    };
+
+    let channel: RealtimeChannel | null = null;
+
+    if (viewMode === 'servers' && activeChannelId && isTextChannel) {
+      channel = supabase
+        .channel(`channel-messages:${activeChannelId}`)
+        .on<ChannelMessage>(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'channel_messages', filter: `channel_id=eq.${activeChannelId}` },
+          (payload) => {
+            const msg = payload.new;
+            setChannelMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
+            if (msg.sender_id !== userId) fetchAuthor(msg.sender_id);
+          }
+        )
+        .subscribe((status) => {
+          if (status === 'CHANNEL_ERROR') setError('Live-Updates unterbrochen. Bitte Seite neu laden.');
+        });
+    } else if (viewMode === 'dms' && activeFriendId) {
+      channel = supabase
+        .channel(`direct-messages:${userId}:${activeFriendId}`)
+        .on<DirectMessage>(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'direct_messages', filter: `receiver_id=eq.${userId}` },
+          (payload) => {
+            const msg = payload.new;
+            if (msg.sender_id !== activeFriendId) return;
+            setDmMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
+          }
+        )
+        .subscribe((status) => {
+          if (status === 'CHANNEL_ERROR') setError('Live-Updates unterbrochen. Bitte Seite neu laden.');
+        });
+    }
+
+    return () => {
+      if (channel) supabase.removeChannel(channel);
+    };
+  }, [viewMode, activeChannelId, activeFriendId, isTextChannel, userId]);
+
   // ===== Server actions =====
   async function createServer() {
     const name = newServerName.trim();
@@ -498,7 +551,7 @@ export default function ChatPage() {
         setError('Failed to send message.');
         setInput(text);
       } else if (data) {
-        setChannelMessages((prev) => [...prev, data as ChannelMessage]);
+        setChannelMessages((prev) => (prev.some((m) => m.id === data.id) ? prev : [...prev, data as ChannelMessage]));
         if (!messageAuthors.has(user.id)) {
           setMessageAuthors((prev) => new Map(prev).set(user.id, {
             id: user.id, email: user.email ?? '', username: null, avatar_url: null, created_at: '',
@@ -518,7 +571,7 @@ export default function ChatPage() {
         setError('Failed to send message.');
         setInput(text);
       } else if (data) {
-        setDmMessages((prev) => [...prev, data as DirectMessage]);
+        setDmMessages((prev) => (prev.some((m) => m.id === data.id) ? prev : [...prev, data as DirectMessage]));
       }
       setSending(false);
     }
