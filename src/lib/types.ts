@@ -84,6 +84,15 @@ export interface Channel {
   server_id: string;
   name: string;
   type: 'text' | 'voice';
+  category_id: string | null;
+  created_at: string;
+}
+
+export interface ChannelCategory {
+  id: string;
+  server_id: string;
+  name: string;
+  position: number;
   created_at: string;
 }
 
