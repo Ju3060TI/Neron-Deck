@@ -329,6 +329,15 @@ export default function ChatPage() {
             setDmMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
           }
         )
+        .on<DirectMessage>(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'direct_messages', filter: `sender_id=eq.${userId}` },
+          (payload) => {
+            const msg = payload.new;
+            if (msg.receiver_id !== activeFriendId) return;
+            setDmMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
+          }
+        )
         .subscribe((status) => {
           if (status === 'CHANNEL_ERROR') setError('Live-Updates unterbrochen. Bitte Seite neu laden.');
         });
