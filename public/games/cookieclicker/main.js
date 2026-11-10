@@ -2452,7 +2452,7 @@ Game.Launch=function()
 		
 		Game.GrabData=function()
 		{
-			if (!App) ajax('grab.txt',Game.GrabDataResponse);
+			if (!App) ajax('/games/cookieclicker/grab.txt',Game.GrabDataResponse);
 			else App.grabData(function(res){
 				Game.heralds=res?(res.playersN||1):1;
 				Game.heralds=Math.max(0,Math.min(100,Math.ceil(Game.heralds/100*100)/100));
@@ -15893,7 +15893,7 @@ window.onload=function()
 				LoadLang('loc/'+lang+'.js?v='+Game.version,function(){
 					var launch=function(){
 						Game.Launch();
-						if (top!=self) Game.ErrorFrame();
+						if (false) Game.ErrorFrame();
 						else
 						{
 							console.log('[=== '+choose([
