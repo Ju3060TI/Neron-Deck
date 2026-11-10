@@ -901,6 +901,23 @@ export default function ChatPage() {
                       {voice.joined ? `${voice.participants.length} participant${voice.participants.length === 1 ? '' : 's'}` : 'Click join to start talking'}
                     </p>
 
+                    <label className="flex items-center gap-2 mb-6 text-xs text-zinc-400">
+                      <Mic className="w-3.5 h-3.5 shrink-0" />
+                      Mikrofon
+                      <select
+                        value={voice.selectedDeviceId}
+                        onChange={(e) => voice.selectInputDevice(e.target.value)}
+                        className="max-w-[16rem] bg-zinc-900 border border-zinc-700 rounded-lg px-2.5 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-emerald-500"
+                      >
+                        <option value="">Standard-Mikrofon</option>
+                        {voice.audioInputs.map((device, index) => (
+                          <option key={device.deviceId} value={device.deviceId}>
+                            {device.label || `Mikrofon ${index + 1}`}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
                     {!voice.joined ? (
                       <button
                         onClick={() => joinVoiceChannel(activeChannel)}
@@ -941,11 +958,15 @@ export default function ChatPage() {
                           const isMe = p.userId === user?.id;
                           return (
                             <div key={p.userId} className="flex items-center gap-3 p-3 bg-zinc-900/60 border border-zinc-800 rounded-lg">
-                              <UserAvatar name={name} avatarUrl={p.profile?.avatar_url} className="w-10 h-10 text-xs" />
+                              <div className={`rounded-full p-0.5 transition-shadow duration-200 ring-2 ${
+                                p.speaking && !p.muted ? 'ring-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.5)]' : 'ring-transparent'
+                              }`}>
+                                <UserAvatar name={name} avatarUrl={p.profile?.avatar_url} className="w-10 h-10 text-xs" />
+                              </div>
                               <div className="min-w-0 flex-1">
-                                <p className="text-sm font-medium text-white truncate">{name}{isMe && ' (you)'}</p>
+                                <p className="text-sm font-medium text-white truncate">{name}{isMe && ' (du)'}</p>
                                 <p className="text-[11px] text-zinc-500">
-                                  {p.muted ? 'Muted' : 'Speaking'}
+                                  {p.muted ? 'Stumm' : p.speaking ? 'Spricht' : 'Verbunden'}
                                 </p>
                               </div>
                               {p.muted ? (
