@@ -2,13 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   SendHorizonal, Search, Loader2, AlertCircle, X, UserPlus,
   Check, MessageSquare, Users, Bell, ArrowLeft, XCircle, Hash,
-  Plus, Copy, Volume2, Mic, MicOff, PhoneOff,
+  Plus, Copy, Volume2, Mic, MicOff, PhoneOff, MonitorUp, MonitorOff,
 } from 'lucide-react';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { useVoiceChannel } from '@/lib/useVoiceChannel';
 import UserAvatar from '@/components/UserAvatar';
+import ScreenShareView from '@/components/ScreenShareView';
 import type {
   Profile, Friendship, DirectMessage,
   Server, Channel, ServerMember, ChannelMessage,
@@ -930,6 +931,16 @@ export default function ChatPage() {
                     ) : (
                       <div className="flex items-center gap-2">
                         <button
+                          onClick={voice.isSharingScreen ? voice.stopScreenShare : voice.startScreenShare}
+                          disabled={!voice.screenShareSupported}
+                          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                            voice.isSharingScreen ? 'bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+                          }`}
+                        >
+                          {voice.isSharingScreen ? <MonitorOff className="w-4 h-4" /> : <MonitorUp className="w-4 h-4" />}
+                          {voice.isSharingScreen ? 'Teilen beenden' : 'Bildschirm teilen'}
+                        </button>
+                        <button
                           onClick={voice.toggleMute}
                           className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors ${
                             voice.muted ? 'bg-red-600/20 text-red-400 hover:bg-red-600/30' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
@@ -947,7 +958,14 @@ export default function ChatPage() {
                         </button>
                       </div>
                     )}
+                    <p className="text-[11px] text-zinc-500 mt-3">Bildschirmfreigabe ist nur in Desktop-Browsern verfügbar.</p>
                   </div>
+
+                  {voice.joined && voice.screenShare && (
+                    <div className="mt-4">
+                      <ScreenShareView stream={voice.screenShare.stream} isMe={voice.screenShare.isMe} sharerName={voice.screenShare.name} />
+                    </div>
+                  )}
 
                   {voice.joined && voice.participants.length > 0 && (
                     <div className="mt-2">

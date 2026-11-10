@@ -9,6 +9,14 @@ export interface VoiceParticipant {
   muted: boolean;
   speaking: boolean;
   stream?: MediaStream;
+  screenStream?: MediaStream;
+}
+
+export interface ScreenShareState {
+  userId: string;
+  name: string;
+  stream: MediaStream;
+  isMe: boolean;
 }
 
 type ParticipantState = Omit<VoiceParticipant, 'speaking'>;
@@ -22,6 +30,7 @@ interface RemotePeer {
   isInitiator: boolean;
   attempts: number;
   reconnectTimer: number | null;
+  ready: boolean;
 }
 
 type SignalMsg =
@@ -84,6 +93,8 @@ export function useVoiceChannel() {
   const [error, setError] = useState<string | null>(null);
   const [audioInputs, setAudioInputs] = useState<MediaDeviceInfo[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState('');
+  const [localScreenStream, setLocalScreenStream] = useState<MediaStream | null>(null);
+  const [localUserId, setLocalUserId] = useState<string | null>(null);
 
   const localStreamRef = useRef<MediaStream | null>(null);
   const localTrackRef = useRef<MediaStreamTrack | null>(null);
@@ -93,11 +104,25 @@ export function useVoiceChannel() {
   const markerRef = useRef<string>(randomId());
   const monitorRef = useRef<AudioLevelMonitor | null>(null);
   const selectedDeviceIdRef = useRef('');
+  const localScreenTrackRef = useRef<MediaStreamTrack | null>(null);
+  const localScreenStreamRef = useRef<MediaStream | null>(null);
 
   const participants = useMemo<VoiceParticipant[]>(
     () => participantStates.map((p) => ({ ...p, speaking: speakingIds.has(p.userId) })),
     [participantStates, speakingIds]
   );
+
+  const screenShare = useMemo<ScreenShareState | null>(() => {
+    if (localScreenStream && localUserId) return { userId: localUserId, name: 'Du', stream: localScreenStream, isMe: true };
+    const sharer = participants.find((p) => p.screenStream);
+    if (!sharer?.screenStream) return null;
+    return {
+      userId: sharer.userId,
+      name: sharer.profile?.username ?? sharer.profile?.email ?? 'Ein Teilnehmer',
+      stream: sharer.screenStream,
+      isMe: false,
+    };
+  }, [localScreenStream, localUserId, participants]);
 
   const sendSignal = useCallback((msg: SignalMsg) => {
     const ch = channelRef.current;
@@ -180,11 +205,20 @@ export function useVoiceChannel() {
         isInitiator,
         attempts: 0,
         reconnectTimer: null,
+        ready: false,
       };
       peersRef.current.set(remoteUid, peer);
       upsertParticipant(remoteUid, { profile: remoteProfile });
 
       pc.ontrack = (e) => {
+        if (e.track.kind === 'video') {
+          const screen = e.streams[0] ?? new MediaStream([e.track]);
+          screen.onremovetrack = () => {
+            if (screen.getVideoTracks().length === 0) upsertParticipant(remoteUid, { screenStream: undefined });
+          };
+          upsertParticipant(remoteUid, { screenStream: screen });
+          return;
+        }
         const stream = e.streams[0];
         const audio = new Audio();
         audio.srcObject = stream;
@@ -205,6 +239,7 @@ export function useVoiceChannel() {
       pc.onconnectionstatechange = () => {
         if (pc.connectionState === 'connected') {
           peer.attempts = 0;
+          peer.ready = true;
           if (peer.reconnectTimer !== null) {
             window.clearTimeout(peer.reconnectTimer);
             peer.reconnectTimer = null;
@@ -219,8 +254,13 @@ export function useVoiceChannel() {
         pc.addTrack(track, localStreamRef.current ?? new MediaStream([track]));
       }
 
-      if (isInitiator) {
+      const screenTrack = localScreenTrackRef.current;
+      if (screenTrack && localScreenStreamRef.current) {
+        pc.addTrack(screenTrack, localScreenStreamRef.current);
+      }
+
         pc.onnegotiationneeded = async () => {
+          if (!isInitiator && !peer.ready) return;
           try {
             peer.makingOffer = true;
             await pc.setLocalDescription();
@@ -231,7 +271,6 @@ export function useVoiceChannel() {
             peer.makingOffer = false;
           }
         };
-      }
 
       return pc;
     },
@@ -343,6 +382,7 @@ export function useVoiceChannel() {
 
         setJoined(true);
         setParticipantStates([{ userId, profile, muted: false, stream }]);
+        setLocalUserId(userId);
       } catch (e) {
         const msg = e instanceof Error ? e.message : 'Mikrofon konnte nicht geöffnet werden.';
         setError(msg);
@@ -354,9 +394,43 @@ export function useVoiceChannel() {
     [joined, connecting, sendSignal, handleSignal, closePeer, refreshAudioInputs]
   );
 
+  const stopScreenShare = useCallback(() => {
+    const track = localScreenTrackRef.current;
+    if (!track) return;
+    for (const peer of peersRef.current.values()) {
+      const sender = peer.pc.getSenders().find((s) => s.track === track);
+      if (sender) peer.pc.removeTrack(sender);
+    }
+    track.stop();
+    localScreenTrackRef.current = null;
+    localScreenStreamRef.current = null;
+    setLocalScreenStream(null);
+  }, []);
+
+  const startScreenShare = useCallback(async () => {
+    if (localScreenTrackRef.current || !userIdRef.current) return;
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+    } catch (e) {
+      if (!(e instanceof DOMException && e.name === 'NotAllowedError')) {
+        setError('Bildschirmfreigabe konnte nicht gestartet werden.');
+      }
+      return;
+    }
+    const track = stream.getVideoTracks()[0];
+    if (!track) return;
+    track.onended = () => stopScreenShare();
+    localScreenTrackRef.current = track;
+    localScreenStreamRef.current = stream;
+    for (const peer of peersRef.current.values()) peer.pc.addTrack(track, stream);
+    setLocalScreenStream(stream);
+  }, [stopScreenShare]);
+
   const leaveVoice = useCallback(() => {
     const myUid = userIdRef.current;
     if (myUid) sendSignal({ kind: 'leave', sender: myUid });
+    stopScreenShare();
 
     for (const peer of peersRef.current.values()) teardownPeer(peer);
     peersRef.current.clear();
@@ -379,8 +453,9 @@ export function useVoiceChannel() {
     userIdRef.current = null;
     setJoined(false);
     setParticipantStates([]);
+    setLocalUserId(null);
     setMuted(false);
-  }, [sendSignal]);
+  }, [sendSignal, stopScreenShare]);
 
   const toggleMute = useCallback(() => {
     const track = localTrackRef.current;
@@ -437,5 +512,10 @@ export function useVoiceChannel() {
     leaveVoice,
     toggleMute,
     selectInputDevice,
+    isSharingScreen: localScreenStream !== null,
+    screenShare,
+    screenShareSupported: typeof navigator.mediaDevices?.getDisplayMedia === 'function',
+    startScreenShare,
+    stopScreenShare,
   };
 }
