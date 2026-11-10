@@ -25,6 +25,10 @@ export interface Profile {
   created_at: string;
 }
 
+export function displayNameOf(profile: Pick<Profile, 'username'> | null | undefined, fallback = 'Unbenannt'): string {
+  return profile?.username || fallback;
+}
+
 export type SaveState = 'idle' | 'saving' | 'saved' | 'error';
 
 export const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';

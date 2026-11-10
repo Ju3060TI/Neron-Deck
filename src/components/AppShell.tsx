@@ -1,7 +1,8 @@
-import { useState } from 'react';
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Vault, MessageSquare, Bot, Settings as SettingsIcon, LogOut, Menu, X, Gamepad2 } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
+import { supabase } from '@/lib/supabase';
 
 const navItems = [
   { to: '/vault', label: 'Vault', icon: Vault },
@@ -81,6 +82,24 @@ export default function AppShell() {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [needsUsername, setNeedsUsername] = useState(false);
+  const location = useLocation();
+
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    supabase
+      .from('profiles')
+      .select('username')
+      .eq('id', user.id)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (!cancelled && !error && data) setNeedsUsername(!data.username);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user, location.pathname]);
 
   async function handleLogout() {
     await signOut();
@@ -136,6 +155,14 @@ export default function AppShell() {
       )}
 
       <main className="md:pl-60 pt-14 md:pt-0 min-h-screen">
+        {needsUsername && location.pathname !== '/settings' && (
+          <div className="mx-4 md:mx-8 mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+            <p className="text-sm text-amber-200">Bitte wähle einen Nutzernamen in den Einstellungen.</p>
+            <NavLink to="/settings" className="text-sm font-medium text-amber-300 underline underline-offset-4 hover:text-amber-100 transition-colors">
+              Zu den Einstellungen
+            </NavLink>
+          </div>
+        )}
         <Outlet />
       </main>
     </div>

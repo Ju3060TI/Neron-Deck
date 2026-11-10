@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react';
-import { Eye, EyeOff, Check, Cloud, Loader2, Bot, CloudOff, UserRound } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Eye, EyeOff, Check, Cloud, Loader2, Bot, CloudOff, UserRound, ImagePlus } from 'lucide-react';
 import { GROQ_KEY_STORAGE, USERNAME_PATTERN } from '@/lib/types';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import UserAvatar from '@/components/UserAvatar';
+
+const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
 
 export default function SettingsPage() {
   const { user } = useAuth();
@@ -15,6 +17,11 @@ export default function SettingsPage() {
   const [savingUsername, setSavingUsername] = useState(false);
   const [usernameSaved, setUsernameSaved] = useState(false);
   const [usernameError, setUsernameError] = useState<string | null>(null);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [avatarError, setAvatarError] = useState<string | null>(null);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
 
   const [keyInput, setKeyInput] = useState(() => {
     try {
@@ -34,7 +41,7 @@ export default function SettingsPage() {
     let cancelled = false;
     supabase
       .from('profiles')
-      .select('username')
+      .select('username, avatar_url')
       .eq('id', userId)
       .maybeSingle()
       .then(({ data, error }) => {
@@ -44,6 +51,7 @@ export default function SettingsPage() {
         } else {
           const name = data?.username ?? '';
           setSavedUsername(name);
+          setAvatarUrl(data?.avatar_url ?? null);
           setUsernameInput(name);
         }
         setLoadingProfile(false);
@@ -91,6 +99,60 @@ export default function SettingsPage() {
     window.setTimeout(() => setUsernameSaved(false), 2000);
   }
 
+  async function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !userId) return;
+    if (!file.type.startsWith('image/')) {
+      setAvatarError('Bitte wähle eine Bilddatei aus.');
+      return;
+    }
+    if (file.size > MAX_AVATAR_BYTES) {
+      setAvatarError('Das Bild darf höchstens 2 MB groß sein.');
+      return;
+    }
+
+    const previewUrl = URL.createObjectURL(file);
+    setAvatarPreview(previewUrl);
+    setAvatarError(null);
+    setUploadingAvatar(true);
+
+    const path = `${userId}/${Date.now()}.${file.type.split('/')[1]}`;
+    const { error: uploadError } = await supabase.storage
+      .from('avatars')
+      .upload(path, file, { contentType: file.type, cacheControl: '3600' });
+    if (uploadError) {
+      URL.revokeObjectURL(previewUrl);
+      setAvatarPreview(null);
+      setAvatarError('Profilbild konnte nicht hochgeladen werden.');
+      setUploadingAvatar(false);
+      return;
+    }
+
+    const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(path);
+    const { error: updateError } = await supabase
+      .from('profiles')
+      .update({ avatar_url: urlData.publicUrl })
+      .eq('id', userId);
+    if (updateError) {
+      void supabase.storage.from('avatars').remove([path]);
+      URL.revokeObjectURL(previewUrl);
+      setAvatarPreview(null);
+      setAvatarError('Profilbild konnte nicht gespeichert werden.');
+      setUploadingAvatar(false);
+      return;
+    }
+
+    const previousPath = avatarUrl?.split('/avatars/')[1];
+    if (previousPath?.startsWith(`${userId}/`)) {
+      void supabase.storage.from('avatars').remove([previousPath]);
+    }
+    URL.revokeObjectURL(previewUrl);
+    setAvatarPreview(null);
+    setAvatarUrl(urlData.publicUrl);
+    setUploadingAvatar(false);
+  }
+
   function handleSave(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
@@ -129,12 +191,33 @@ export default function SettingsPage() {
 
         <div className="flex items-center gap-4 mb-6">
           <UserAvatar
-            name={savedUsername || user?.email || '?'}
+            name={savedUsername || 'Unbenannt'}
+            avatarUrl={avatarPreview ?? avatarUrl}
             className="w-14 h-14 text-sm"
           />
-          <p className="font-mono text-[11px] text-gray-400">
-            {savedUsername || 'Noch kein Nutzername gesetzt'}
-          </p>
+          <div className="flex-1 min-w-0">
+            <p className="font-mono text-[11px] text-gray-400">
+              {savedUsername || 'Noch kein Nutzername gesetzt'}
+            </p>
+            <input
+              ref={avatarInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleAvatarChange}
+            />
+            <button
+              type="button"
+              onClick={() => avatarInputRef.current?.click()}
+              disabled={uploadingAvatar}
+              className="mt-2 flex items-center gap-2 font-mono text-[10px] tracking-widest text-accent hover:text-accent-hover disabled:opacity-60 transition-colors"
+            >
+              {uploadingAvatar ? <Loader2 className="w-3 h-3 animate-spin" /> : <ImagePlus className="w-3 h-3" />}
+              {uploadingAvatar ? 'LÄDT...' : 'PROFILBILD ÄNDERN'}
+            </button>
+            <p className="font-mono text-[10px] text-gray-600 mt-1">PNG, JPG, WEBP oder GIF, max. 2 MB</p>
+            {avatarError && <p className="font-mono text-[11px] text-red-300 mt-1">{avatarError}</p>}
+          </div>
         </div>
 
         <form onSubmit={handleUsernameSave} className="space-y-5">

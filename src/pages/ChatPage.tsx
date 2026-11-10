@@ -9,6 +9,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth';
 import { useVoiceChannel } from '@/lib/useVoiceChannel';
 import UserAvatar from '@/components/UserAvatar';
+import { displayNameOf } from '@/lib/types';
 import ScreenShareView from '@/components/ScreenShareView';
 import type {
   Profile, Friendship, DirectMessage,
@@ -508,7 +509,7 @@ export default function ChatPage() {
       showToast('Could not send friend request.');
       return;
     }
-    showToast(`Friend request sent to ${profile.username ?? profile.email}.`);
+    showToast(`Friend request sent to ${displayNameOf(profile)}.`);
     setFriendUsername('');
     setSearchResults([]);
   }
@@ -522,7 +523,7 @@ export default function ChatPage() {
       showToast('Could not accept request.');
       return;
     }
-    showToast(`You are now friends with ${profile.username ?? profile.email}.`);
+    showToast(`You are now friends with ${displayNameOf(profile)}.`);
     fetchFriends();
   }
 
@@ -611,7 +612,7 @@ export default function ChatPage() {
 
   function getAuthorName(senderId: string): string {
     const p = messageAuthors.get(senderId);
-    return p?.username ?? p?.email ?? 'Unknown';
+    return displayNameOf(p, 'Unknown');
   }
 
   return (
@@ -751,7 +752,7 @@ export default function ChatPage() {
                               {voice.participants.map((p) => (
                                 <div key={p.userId} className="flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] text-zinc-400">
                                   {p.muted ? <MicOff className="w-3 h-3 text-red-400" /> : <Mic className="w-3 h-3 text-emerald-400" />}
-                                  <span className="truncate">{p.profile?.username ?? p.profile?.email ?? 'Unknown'}</span>
+                                  <span className="truncate">{displayNameOf(p.profile, 'Unknown')}</span>
                                 </div>
                               ))}
                             </div>
@@ -805,7 +806,7 @@ export default function ChatPage() {
                 <ul className="py-1">
                   {friends.map((f) => {
                     const active = activeFriendId === f.profile.id;
-                    const name = f.profile.username ?? f.profile.email;
+                    const name = displayNameOf(f.profile);
                     return (
                       <li key={f.id}>
                         <button
@@ -864,12 +865,12 @@ export default function ChatPage() {
               ) : activeFriend ? (
                 <>
                   <UserAvatar
-                    name={activeFriend.profile.username ?? activeFriend.profile.email}
+                    name={displayNameOf(activeFriend.profile)}
                     avatarUrl={activeFriend.profile.avatar_url}
                     className="w-9 h-9 text-xs"
                   />
                   <div className="min-w-0">
-                    <p className="text-sm font-semibold text-white truncate">{activeFriend.profile.username ?? activeFriend.profile.email}</p>
+                    <p className="text-sm font-semibold text-white truncate">{displayNameOf(activeFriend.profile)}</p>
                     <p className="text-[11px] text-zinc-500">{activeFriend.profile.email}</p>
                   </div>
                 </>
@@ -972,7 +973,7 @@ export default function ChatPage() {
                       <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider mb-2 px-1">Participants</p>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         {voice.participants.map((p) => {
-                          const name = p.profile?.username ?? p.profile?.email ?? 'You';
+                          const name = displayNameOf(p.profile, 'You');
                           const isMe = p.userId === user?.id;
                           return (
                             <div key={p.userId} className="flex items-center gap-3 p-3 bg-zinc-900/60 border border-zinc-800 rounded-lg">
@@ -1035,7 +1036,7 @@ export default function ChatPage() {
                           <div key={rawMsg.id} className={`flex gap-2 ${mine ? 'justify-end' : 'justify-start'}`}>
                             {!mine && (
                               <UserAvatar
-                                name={author?.username ?? author?.email ?? authorName}
+                                name={author?.username ?? authorName}
                                 avatarUrl={author?.avatar_url}
                                 className="w-8 h-8 text-xs mt-1 shrink-0"
                               />
@@ -1087,7 +1088,7 @@ export default function ChatPage() {
                     viewMode === 'servers' && activeChannel
                       ? `Message #${activeChannel.name}`
                       : viewMode === 'dms' && activeFriend
-                      ? `Message ${activeFriend.profile.username ?? activeFriend.profile.email}...`
+                      ? `Message ${displayNameOf(activeFriend.profile)}...`
                       : 'Type a message...'
                   }
                   disabled={sending}
@@ -1309,9 +1310,9 @@ export default function ChatPage() {
                 <ul className="space-y-1">
                   {searchResults.map((p) => (
                     <li key={p.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-zinc-800">
-                      <UserAvatar name={p.username ?? p.email} avatarUrl={p.avatar_url} className="w-8 h-8 text-xs" />
+                      <UserAvatar name={displayNameOf(p)} avatarUrl={p.avatar_url} className="w-8 h-8 text-xs" />
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium text-white truncate">{p.username ?? p.email}</p>
+                        <p className="text-sm font-medium text-white truncate">{displayNameOf(p)}</p>
                         <p className="text-[11px] text-zinc-600 truncate">{p.email}</p>
                       </div>
                       <button
@@ -1357,12 +1358,12 @@ export default function ChatPage() {
                 {pendingRequests.map((req) => (
                   <li key={req.id} className="flex items-center gap-3 p-2 rounded-lg bg-zinc-800/60">
                     <UserAvatar
-                      name={req.profile.username ?? req.profile.email}
+                      name={displayNameOf(req.profile)}
                       avatarUrl={req.profile.avatar_url}
                       className="w-9 h-9 text-xs"
                     />
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-white truncate">{req.profile.username ?? req.profile.email}</p>
+                      <p className="text-sm font-medium text-white truncate">{displayNameOf(req.profile)}</p>
                       <p className="text-[11px] text-zinc-600 truncate">{req.profile.email}</p>
                     </div>
                     <button
