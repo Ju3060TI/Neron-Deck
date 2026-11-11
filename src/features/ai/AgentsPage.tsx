@@ -145,6 +145,29 @@ export default function AgentsPage() {
     setInput('');
     setSending(true);
 
+    // Resolve the active vault ID so tool calls target the right vault
+    let vaultId: string | null = null;
+    try {
+      vaultId = localStorage.getItem('neron-deck:active-vault-id');
+    } catch { /* ignore */ }
+    if (!vaultId) {
+      const { data: firstVault } = await supabase
+        .from('vaults')
+        .select('id')
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      vaultId = firstVault?.id ?? null;
+      if (vaultId) {
+        try { localStorage.setItem('neron-deck:active-vault-id', vaultId); } catch { /* ignore */ }
+      }
+    }
+    if (!vaultId) {
+      showToast('Erstelle zuerst einen Vault, damit die KI Notizen anlegen kann.');
+      setSending(false);
+      return;
+    }
+
     // Save user message
     const { data: userMsg, error: insertErr } = await supabase
       .from('ai_session_messages')
@@ -209,7 +232,7 @@ export default function AgentsPage() {
         body: JSON.stringify({
           model: GROQ_MODEL,
           messages: [
-            { role: 'system', content: 'You are Neron-Deck, a concise, helpful AI assistant. You can create and read vault notes using the provided tools when the user asks.' },
+            { role: 'system', content: `You are Neron-Deck, a concise, helpful AI assistant. You can create and read vault notes using the provided tools when the user asks. Notes are created in the user's currently active vault (vault_id: ${vaultId}).` },
             ...allMessages.map((m) => ({ role: m.role, content: m.content })),
           ],
           tools,
@@ -244,6 +267,7 @@ export default function AgentsPage() {
             const { data: noteData } = await supabase
               .from('vault_notes')
               .insert({
+                vault_id: vaultId!,
                 title: String(args.title ?? 'Untitled'),
                 content: String(args.content ?? ''),
                 file_type: (args.file_type as 'markdown' | 'code') ?? 'markdown',
@@ -258,6 +282,7 @@ export default function AgentsPage() {
             const { data: notes } = await supabase
               .from('vault_notes')
               .select('title, file_type, language, content')
+              .eq('vault_id', vaultId!)
               .order('updated_at', { ascending: false })
               .limit(20);
             if (notes && notes.length > 0) {

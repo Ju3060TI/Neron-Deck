@@ -104,6 +104,12 @@ export default function VaultPage() {
     fetchNotes();
   }, [fetchNotes]);
 
+  useEffect(() => {
+    if (activeVaultId) {
+      try { localStorage.setItem('neron-deck:active-vault-id', activeVaultId); } catch { /* ignore */ }
+    }
+  }, [activeVaultId]);
+
   async function createVault() {
     const name = newVaultName.trim();
     if (!name) return;
