@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, MessageSquare, Trash2, SendHorizonal, KeyRound, Bot, User, AlertCircle, Loader2, X } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import { useAuth } from '@/lib/auth';
+import { useAuth } from '@/features/auth/auth-context';
 import { GROQ_API_URL, GROQ_MODEL, GROQ_KEY_STORAGE } from '@/lib/types';
 import type { AiSession, AiSessionMessage } from '@/lib/types';
-import { markdownToHtml } from '@/lib/markdown';
+import { markdownToHtml } from '@/features/vault/markdown-utils';
 
 function getStoredKey(): string {
   try {

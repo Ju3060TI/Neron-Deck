@@ -3,6 +3,7 @@ import {
   ChevronDown, ChevronRight, Hash, Volume2, Plus, MoreHorizontal,
   Pencil, Trash2, MessageSquare, PlusCircle,
 } from 'lucide-react';
+import UserAvatar from '@/components/ui/UserAvatar';
 import { displayNameOf } from '@/lib/types';
 import type { Server, Channel, ChannelCategory, Profile } from '@/lib/types';
 

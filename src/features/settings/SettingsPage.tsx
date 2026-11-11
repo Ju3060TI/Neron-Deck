@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Eye, EyeOff, Check, Cloud, Loader2, Bot, CloudOff, UserRound, ImagePlus } from 'lucide-react';
 import { GROQ_KEY_STORAGE, USERNAME_PATTERN } from '@/lib/types';
 import { supabase } from '@/lib/supabase';
-import { useAuth } from '@/lib/auth';
-import UserAvatar from '@/components/UserAvatar';
+import { useAuth } from '@/features/auth/auth-context';
+import UserAvatar from '@/components/ui/UserAvatar';
 
 const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
 

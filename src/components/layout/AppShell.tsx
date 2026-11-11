@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Vault, MessageSquare, Bot, Settings as SettingsIcon, LogOut, Menu, X, Gamepad2 } from 'lucide-react';
-import { useAuth } from '@/lib/auth';
+import { useAuth } from '@/features/auth/auth-context';
 import { supabase } from '@/lib/supabase';
 
 const navItems = [

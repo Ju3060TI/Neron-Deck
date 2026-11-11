@@ -1,12 +1,12 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
-import { AuthProvider, useAuth } from '@/lib/auth';
-import AppShell from '@/components/AppShell';
-import AuthScreen from '@/pages/AuthScreen';
-import VaultPage from '@/pages/VaultPage';
-import AgentsPage from '@/pages/AgentsPage';
-import ChatPage from '@/pages/ChatPage';
-import GamesPage from '@/pages/GamesPage';
-import SettingsPage from '@/pages/SettingsPage';
+import { AuthProvider, useAuth } from '@/features/auth/auth-context';
+import AppShell from '@/components/layout/AppShell';
+import AuthScreen from '@/features/auth/AuthScreen';
+import VaultPage from '@/features/vault/VaultPage';
+import AgentsPage from '@/features/ai/AgentsPage';
+import ChatPage from '@/features/chat/ChatPage';
+import GamesPage from '@/features/games/GamesPage';
+import SettingsPage from '@/features/settings/SettingsPage';
 
 function ProtectedRoutes() {
   const { session, loading } = useAuth();

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Loader2, Hexagon, AlertCircle, UserPlus, LogIn } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { supabase } from '@/lib/supabase';
 import { USERNAME_PATTERN } from '@/lib/types';
 
 export default function AuthScreen() {

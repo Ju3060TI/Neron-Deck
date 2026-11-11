@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { Profile } from '@/lib/types';
-import { createAudioLevelMonitor, type AudioLevelMonitor } from '@/lib/audioLevel';
+import { createAudioLevelMonitor, type AudioLevelMonitor } from '@/features/voice/audioLevel';
 
 export interface VoiceParticipant {
   userId: string;

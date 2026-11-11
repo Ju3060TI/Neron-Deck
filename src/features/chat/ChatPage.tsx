@@ -6,11 +6,11 @@ import {
 } from 'lucide-react';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
-import { useAuth } from '@/lib/auth';
-import { useVoiceChannel } from '@/lib/useVoiceChannel';
-import UserAvatar from '@/components/UserAvatar';
+import { useAuth } from '@/features/auth/auth-context';
+import { useVoiceChannel } from '@/features/voice/useVoiceChannel';
+import UserAvatar from '@/components/ui/UserAvatar';
 import { displayNameOf } from '@/lib/types';
-import ScreenShareView from '@/components/ScreenShareView';
+import ScreenShareView from '@/components/ui/ScreenShareView';
 import type {
   Profile, Friendship, DirectMessage,
   Server, Channel, ServerMember, ChannelMessage,

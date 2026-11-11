@@ -6,9 +6,9 @@ import {
   Search, X, ChevronDown, FolderOpen, FileCode, Network, List, ArrowLeft,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import { useAuth } from '@/lib/auth';
+import { useAuth } from '@/features/auth/auth-context';
 import type { VaultNote, Vault, SaveState } from '@/lib/types';
-import { markdownToHtml } from '@/lib/markdown';
+import { markdownToHtml } from '@/features/vault/markdown-utils';
 
 type ViewMode = 'edit' | 'preview' | 'split';
 type LayoutMode = 'list' | 'graph';
