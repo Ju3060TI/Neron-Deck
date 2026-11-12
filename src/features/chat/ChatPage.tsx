@@ -3,6 +3,7 @@ import {
   SendHorizonal, Search, Loader2, AlertCircle, X, UserPlus,
   Check, MessageSquare, Users, Bell, ArrowLeft, XCircle, Hash,
   Plus, Copy, Volume2, Mic, MicOff, PhoneOff, MonitorUp, MonitorOff,
+  Settings as SettingsIcon, ChevronDown, ChevronRight,
 } from 'lucide-react';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
@@ -13,8 +14,12 @@ import { displayNameOf } from '@/lib/types';
 import ScreenShareView from '@/components/ui/ScreenShareView';
 import type {
   Profile, Friendship, DirectMessage,
-  Server, Channel, ServerMember, ChannelMessage,
+  Server, Channel, ServerMember, ChannelMessage, ChannelCategory,
 } from '@/lib/types';
+import ServerSettingsModal from '@/components/modals/ServerSettingsModal';
+import CategorySettingsModal from '@/components/modals/CategorySettingsModal';
+import ChannelSettingsModal from '@/components/modals/ChannelSettingsModal';
+import MemberList from '@/components/chat/MemberList';
 
 function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
@@ -65,6 +70,18 @@ export default function ChatPage() {
   const [showCreateChannel, setShowCreateChannel] = useState(false);
   const [newChannelName, setNewChannelName] = useState('');
   const [newChannelType, setNewChannelType] = useState<NewChannelType>('text');
+
+  // Categories
+  const [categories, setCategories] = useState<ChannelCategory[]>([]);
+  const [collapsedCats, setCollapsedCats] = useState<Set<string>>(new Set());
+
+  // Settings modals
+  const [showServerSettings, setShowServerSettings] = useState(false);
+  const [showCategorySettings, setShowCategorySettings] = useState<ChannelCategory | null>(null);
+  const [showChannelSettings, setShowChannelSettings] = useState<Channel | null>(null);
+
+  // Member list visibility
+  const [showMemberList, setShowMemberList] = useState(true);
 
   // ===== DMs / Friends =====
   const [friends, setFriends] = useState<FriendWithProfile[]>([]);
@@ -166,6 +183,24 @@ export default function ChatPage() {
   useEffect(() => {
     fetchChannels();
   }, [fetchChannels]);
+
+  // Fetch categories for active server
+  const fetchCategories = useCallback(async () => {
+    if (!activeServerId) {
+      setCategories([]);
+      return;
+    }
+    const { data } = await supabase
+      .from('channel_categories')
+      .select('*')
+      .eq('server_id', activeServerId)
+      .order('position', { ascending: true });
+    setCategories((data ?? []) as ChannelCategory[]);
+  }, [activeServerId]);
+
+  useEffect(() => {
+    fetchCategories();
+  }, [fetchCategories]);
 
   useEffect(() => {
     if (channels.length > 0 && !channels.find((c) => c.id === activeChannelId)) {
@@ -608,7 +643,53 @@ export default function ChatPage() {
 
   const currentMessages = viewMode === 'servers' ? groupedChannelMessages : groupedDmMessages;
   const loadingCurrent = viewMode === 'servers' ? loadingMessages : loadingDmMessages;
+  const isOwner = activeServer?.owner_id === user?.id;
+
   const isMe = (msgUserId: string) => msgUserId === user?.id;
+
+  function toggleCatCollapsed(id: string) {
+    setCollapsedCats((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function renameCategory(categoryId: string, newName: string) {
+    setCategories((prev) => prev.map((c) => c.id === categoryId ? { ...c, name: newName } : c));
+  }
+
+  async function deleteCategory(categoryId: string) {
+    await supabase.from('channel_categories').delete().eq('id', categoryId);
+    setCategories((prev) => prev.filter((c) => c.id !== categoryId));
+    fetchChannels();
+  }
+
+  async function renameChannel(channelId: string, newName: string) {
+    setChannels((prev) => prev.map((c) => c.id === channelId ? { ...c, name: newName } : c));
+  }
+
+  async function deleteChannel(channelId: string) {
+    setChannels((prev) => prev.filter((c) => c.id !== channelId));
+    if (activeChannelId === channelId) setActiveChannelId(null);
+  }
+
+  async function handleServerRenamed(newName: string) {
+    setJoinedServers((prev) => prev.map((s) => s.id === activeServerId ? { ...s, name: newName } : s));
+  }
+
+  async function handleServerDeleted() {
+    const deletedId = activeServerId;
+    setJoinedServers((prev) => prev.filter((s) => s.id !== deletedId));
+    setActiveServerId(null);
+    setChannels([]);
+    setCategories([]);
+    setActiveChannelId(null);
+    setShowServerSettings(false);
+    setViewMode('dms');
+    showToast('Server wurde gelöscht.');
+  }
 
   function getAuthorName(senderId: string): string {
     const p = messageAuthors.get(senderId);
@@ -678,17 +759,35 @@ export default function ChatPage() {
       <div className={`w-60 shrink-0 bg-zinc-900/80 border-r border-zinc-800 flex flex-col h-full ${mobileThreadOpen ? 'hidden md:flex' : 'flex'}`}>
         {viewMode === 'servers' && activeServer ? (
           <>
-            <div className="flex items-center justify-between px-4 h-14 border-b border-zinc-800 shrink-0">
+            <div className="group flex items-center justify-between px-4 h-14 border-b border-zinc-800 shrink-0">
               <h2 className="text-sm font-semibold text-white truncate">{activeServer.name}</h2>
-              {activeServer.owner_id === user?.id && (
+              <div className="flex items-center gap-1">
+                {isOwner && (
+                  <button
+                    onClick={() => setShowCreateChannel(true)}
+                    className="p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-lg transition-colors"
+                    title="Kanal erstellen"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
+                )}
                 <button
-                  onClick={() => setShowCreateChannel(true)}
+                  onClick={() => setShowMemberList((v) => !v)}
                   className="p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-lg transition-colors"
-                  title="Create channel"
+                  title="Mitgliederliste"
                 >
-                  <Plus className="w-4 h-4" />
+                  <Users className="w-4 h-4" />
                 </button>
-              )}
+                {isOwner && (
+                  <button
+                    onClick={() => setShowServerSettings(true)}
+                    className="p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-lg transition-colors opacity-0 group-hover:opacity-100 transition-opacity"
+                    title="Servereinstellungen"
+                  >
+                    <SettingsIcon className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
             </div>
             <div className="flex-1 overflow-y-auto py-2 px-2">
               {loadingChannels ? (
@@ -698,70 +797,26 @@ export default function ChatPage() {
               ) : channels.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
                   <Hash className="w-8 h-8 text-zinc-700 mb-3" strokeWidth={1.5} />
-                  <p className="text-sm text-zinc-500">No channels yet</p>
-                  {activeServer.owner_id === user?.id && (
-                    <p className="text-xs text-zinc-600 mt-1">Click + to create one.</p>
+                  <p className="text-sm text-zinc-500">Keine Kanäle</p>
+                  {isOwner && (
+                    <p className="text-xs text-zinc-600 mt-1">Klicke auf + um einen zu erstellen.</p>
                   )}
                 </div>
               ) : (
-                <>
-                  {channels.some((c) => c.type === 'text') && (
-                    <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider px-3 py-1 mt-1">Text Channels</p>
-                  )}
-                  <ul className="space-y-0.5">
-                    {channels.filter((c) => c.type === 'text').map((ch) => {
-                      const active = activeChannelId === ch.id;
-                      return (
-                        <li key={ch.id}>
-                          <button
-                            onClick={() => { setActiveChannelId(ch.id); setMobileThreadOpen(true); }}
-                            className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
-                              active ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
-                            }`}
-                          >
-                            <Hash className="w-4 h-4 text-zinc-500 shrink-0" />
-                            <span className="truncate">{ch.name}</span>
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                  {channels.some((c) => c.type === 'voice') && (
-                    <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider px-3 py-1 mt-3">Voice Channels</p>
-                  )}
-                  <ul className="space-y-0.5">
-                    {channels.filter((c) => c.type === 'voice').map((ch) => {
-                      const active = activeChannelId === ch.id;
-                      const inThisVoice = voice.joined && activeChannelId === ch.id;
-                      return (
-                        <li key={ch.id}>
-                          <button
-                            onClick={() => joinVoiceChannel(ch)}
-                            className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
-                              active ? 'bg-zinc-800 text-white' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
-                            }`}
-                          >
-                            <Volume2 className={`w-4 h-4 shrink-0 ${inThisVoice ? 'text-emerald-400' : 'text-zinc-500'}`} />
-                            <span className="truncate">{ch.name}</span>
-                            {inThisVoice && (
-                              <span className="ml-auto text-[10px] text-emerald-400 font-medium">Live</span>
-                            )}
-                          </button>
-                          {inThisVoice && voice.participants.length > 0 && (
-                            <div className="ml-7 mb-1 space-y-0.5">
-                              {voice.participants.map((p) => (
-                                <div key={p.userId} className="flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] text-zinc-400">
-                                  {p.muted ? <MicOff className="w-3 h-3 text-red-400" /> : <Mic className="w-3 h-3 text-emerald-400" />}
-                                  <span className="truncate">{displayNameOf(p.profile, 'Unknown')}</span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </>
+                <CategoryChannelList
+                  channels={channels}
+                  categories={categories}
+                  collapsedCats={collapsedCats}
+                  onToggleCat={toggleCatCollapsed}
+                  activeChannelId={activeChannelId}
+                  activeVoiceChannelId={voice.joined ? activeChannelId : null}
+                  onSelectText={(ch) => { setActiveChannelId(ch.id); setMobileThreadOpen(true); }}
+                  onSelectVoice={joinVoiceChannel}
+                  isOwner={isOwner}
+                  onChannelSettings={(ch) => setShowChannelSettings(ch)}
+                  onCategorySettings={(cat) => setShowCategorySettings(cat)}
+                  voiceParticipants={voice.participants}
+                />
               )}
             </div>
           </>
@@ -1129,6 +1184,51 @@ export default function ChatPage() {
         )}
       </div>
 
+      {/* ===== Member list (right sidebar) — server text channels only ===== */}
+      {viewMode === 'servers' && activeServer && activeChannel?.type === 'text' && showMemberList && (
+        <div className="hidden lg:flex">
+          <MemberList server={activeServer} />
+        </div>
+      )}
+
+      {/* ===== Settings modals ===== */}
+      {showServerSettings && activeServer && (
+        <ServerSettingsModal
+          server={activeServer}
+          onClose={() => setShowServerSettings(false)}
+          onRenamed={handleServerRenamed}
+          onDeleted={handleServerDeleted}
+        />
+      )}
+      {showCategorySettings && (
+        <CategorySettingsModal
+          category={showCategorySettings}
+          onClose={() => setShowCategorySettings(null)}
+          onRenamed={(newName) => {
+            setCategories((prev) => prev.map((c) => c.id === showCategorySettings.id ? { ...c, name: newName } : c));
+            setShowCategorySettings(null);
+          }}
+          onDeleted={() => {
+            deleteCategory(showCategorySettings.id);
+            setShowCategorySettings(null);
+          }}
+        />
+      )}
+      {showChannelSettings && (
+        <ChannelSettingsModal
+          channel={showChannelSettings}
+          onClose={() => setShowChannelSettings(null)}
+          onRenamed={(newName) => {
+            setChannels((prev) => prev.map((c) => c.id === showChannelSettings.id ? { ...c, name: newName } : c));
+            setShowChannelSettings(null);
+          }}
+          onDeleted={() => {
+            deleteChannel(showChannelSettings.id);
+            setShowChannelSettings(null);
+          }}
+        />
+      )}
+
       {/* ===== Create / Join Server modal ===== */}
       {showCreateServer && (
         <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
@@ -1388,6 +1488,131 @@ export default function ChatPage() {
         </div>
       )}
     </div>
+  );
+}
+
+interface CategoryChannelListProps {
+  channels: Channel[];
+  categories: ChannelCategory[];
+  collapsedCats: Set<string>;
+  onToggleCat: (id: string) => void;
+  activeChannelId: string | null;
+  activeVoiceChannelId: string | null;
+  onSelectText: (ch: Channel) => void;
+  onSelectVoice: (ch: Channel) => void;
+  isOwner: boolean;
+  onChannelSettings: (ch: Channel) => void;
+  onCategorySettings: (cat: ChannelCategory) => void;
+  voiceParticipants: { userId: string; profile: Profile; muted: boolean; speaking: boolean }[];
+}
+
+function CategoryChannelList({
+  channels, categories, collapsedCats, onToggleCat,
+  activeChannelId, activeVoiceChannelId, onSelectText, onSelectVoice,
+  isOwner, onChannelSettings, onCategorySettings, voiceParticipants,
+}: CategoryChannelListProps) {
+  const sortedCats = [...categories].sort((a, b) => a.position - b.position);
+  const uncategorized = channels.filter((c) => !c.category_id);
+
+  const renderChannelItem = (ch: Channel) => {
+    const isText = ch.type === 'text';
+    const active = activeChannelId === ch.id;
+    const inVoice = activeVoiceChannelId === ch.id;
+    return (
+      <li key={ch.id}>
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => (isText ? onSelectText(ch) : onSelectVoice(ch))}
+          onKeyDown={(e) => { if (e.key === 'Enter') (isText ? onSelectText(ch) : onSelectVoice(ch)); }}
+          className={`group flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm cursor-pointer transition-colors ${
+            active || inVoice
+              ? 'bg-zinc-800 text-white'
+              : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
+          }`}
+        >
+          {isText
+            ? <Hash className="w-4 h-4 text-zinc-500 shrink-0" />
+            : <Volume2 className={`w-4 h-4 shrink-0 ${inVoice ? 'text-emerald-400' : 'text-zinc-500'}`} />}
+          <span className="truncate flex-1">{ch.name}</span>
+          {inVoice && (
+            <span className="text-[10px] text-emerald-400 font-medium">Live</span>
+          )}
+          {isOwner && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onChannelSettings(ch); }}
+              className="opacity-0 group-hover:opacity-100 p-0.5 text-zinc-500 hover:text-white transition-opacity shrink-0"
+              title="Kanal-Einstellungen"
+            >
+              <SettingsIcon className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+        {inVoice && voiceParticipants.length > 0 && (
+          <div className="ml-6 mb-1 space-y-0.5">
+            {voiceParticipants.map((p) => (
+              <div key={p.userId} className="flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] text-zinc-400">
+                {p.muted ? <MicOff className="w-3 h-3 text-red-400" /> : <Mic className="w-3 h-3 text-emerald-400" />}
+                <span className="truncate">{displayNameOf(p.profile, 'Unknown')}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </li>
+    );
+  };
+
+  return (
+    <>
+      {sortedCats.map((cat) => {
+        const isCollapsed = collapsedCats.has(cat.id);
+        const catChannels = channels.filter((c) => c.category_id === cat.id);
+        return (
+          <div key={cat.id} className="mb-3">
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => onToggleCat(cat.id)}
+              onKeyDown={(e) => { if (e.key === 'Enter') onToggleCat(cat.id); }}
+              className="group flex items-center gap-1 px-1 py-1 cursor-pointer select-none rounded hover:bg-zinc-800/50 transition-colors"
+            >
+              {isCollapsed
+                ? <ChevronRight className="w-3 h-3 text-zinc-500 shrink-0" />
+                : <ChevronDown className="w-3 h-3 text-zinc-500 shrink-0" />}
+              <span className="flex-1 text-[10px] font-semibold text-zinc-500 uppercase tracking-wider truncate group-hover:text-zinc-300 transition-colors">
+                {cat.name}
+              </span>
+              {isOwner && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onCategorySettings(cat); }}
+                  className="opacity-0 group-hover:opacity-100 p-0.5 text-zinc-500 hover:text-white transition-opacity shrink-0"
+                  title="Kategorie-Einstellungen"
+                >
+                  <SettingsIcon className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+            {!isCollapsed && (
+              <ul className="space-y-0.5 mt-0.5">
+                {catChannels.map(renderChannelItem)}
+                {catChannels.length === 0 && (
+                  <li className="px-2 py-1 text-[11px] text-zinc-600 italic">Keine Kanäle</li>
+                )}
+              </ul>
+            )}
+          </div>
+        );
+      })}
+
+      {uncategorized.length > 0 && (
+        <div className="mb-3">
+          <div className="px-1 py-1 text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">
+            Kanäle
+          </div>
+          <ul className="space-y-0.5">{uncategorized.map(renderChannelItem)}</ul>
+        </div>
+      )}
+    </>
   );
 }
 

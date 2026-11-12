@@ -118,3 +118,20 @@ export interface ChannelMessage {
   content: string;
   created_at: string;
 }
+
+export interface Role {
+  id: string;
+  server_id: string;
+  name: string;
+  color: string;
+  position: number;
+  created_at: string;
+}
+
+export interface MemberRole {
+  id: string;
+  server_id: string;
+  user_id: string;
+  role_id: string;
+  created_at: string;
+}
