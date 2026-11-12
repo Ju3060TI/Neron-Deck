@@ -7,6 +7,7 @@ import AgentsPage from '@/features/ai/AgentsPage';
 import ChatPage from '@/features/chat/ChatPage';
 import GamesPage from '@/features/games/GamesPage';
 import SettingsPage from '@/features/settings/SettingsPage';
+import DevLab from '@/features/devlab/DevLab';
 
 function ProtectedRoutes() {
   const { session, loading } = useAuth();
@@ -29,6 +30,7 @@ function ProtectedRoutes() {
         <Route path="/agents" element={<AgentsPage />} />
         <Route path="/chat" element={<ChatPage />} />
         <Route path="/games" element={<GamesPage />} />
+        <Route path="/devlab" element={<DevLab />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Route>
     </Routes>

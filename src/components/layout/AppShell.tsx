@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { Vault, MessageSquare, Bot, Settings as SettingsIcon, LogOut, Menu, X, Gamepad2 } from 'lucide-react';
+import { Vault, MessageSquare, Bot, Settings as SettingsIcon, LogOut, Menu, X, Gamepad2, Code2 } from 'lucide-react';
 import { useAuth } from '@/features/auth/auth-context';
 import { supabase } from '@/lib/supabase';
 
@@ -8,6 +8,7 @@ const navItems = [
   { to: '/vault', label: 'Vault', icon: Vault },
   { to: '/agents', label: 'Agents', icon: Bot },
   { to: '/chat', label: 'Chat', icon: MessageSquare },
+  { to: '/devlab', label: 'DevLab', icon: Code2 },
   { to: '/games', label: 'Games', icon: Gamepad2 },
 ];
 
